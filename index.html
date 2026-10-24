@@ -360,6 +360,62 @@
       font-size: 14px;
     }
 
+    .personal-best {
+      margin: -10px 0 22px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .review {
+      margin: 0 0 24px;
+      border-top: 1px solid var(--line);
+      padding-top: 17px;
+      text-align: left;
+    }
+
+    .review summary {
+      width: fit-content;
+      color: var(--accent-strong);
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .review summary:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+      outline-offset: 4px;
+      border-radius: 3px;
+    }
+
+    .review-list {
+      display: grid;
+      gap: 12px;
+      margin: 15px 0 0;
+      padding-left: 25px;
+    }
+
+    .missed-question {
+      padding: 13px 15px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--surface);
+    }
+
+    .missed-question h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+
+    .missed-question p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .missed-question .correct-answer { color: var(--success); }
+
     .hidden { display: none !important; }
 
     @keyframes shake {
@@ -433,6 +489,11 @@
       <h1 id="result-title">Look at you, space explorer!</h1>
       <p class="result-score" id="final-score">0/10</p>
       <p class="result-caption" id="result-caption"></p>
+      <p class="personal-best" id="personal-best"></p>
+      <details class="review hidden" id="missed-review">
+        <summary id="review-summary">Review missed questions</summary>
+        <ol class="review-list" id="review-list"></ol>
+      </details>
       <button class="primary" id="play-again" type="button">Play again <span aria-hidden="true">↻</span></button>
     </section>
   </main>
@@ -512,13 +573,50 @@
     const answersElement = document.querySelector("#answers");
     const feedback = document.querySelector("#feedback");
     const nextButton = document.querySelector("#next-button");
+    const personalBest = document.querySelector("#personal-best");
+    const missedReview = document.querySelector("#missed-review");
+    const reviewSummary = document.querySelector("#review-summary");
+    const reviewList = document.querySelector("#review-list");
+    const bestScoreStorageKey = "orbit-academy-personal-best";
+    let bestScore = null;
+    let bestScoreStorageAvailable = true;
     let current = 0;
     let score = 0;
     let answered = false;
+    let runQuestions = [];
+    let missedAnswers = [];
+
+    function loadBestScore() {
+      try {
+        const savedScore = window.localStorage.getItem(bestScoreStorageKey);
+        if (savedScore === null) return null;
+        const parsedScore = Number(savedScore);
+        return Number.isInteger(parsedScore) && parsedScore >= 0 && parsedScore <= questions.length
+          ? parsedScore
+          : null;
+      } catch {
+        bestScoreStorageAvailable = false;
+        return null;
+      }
+    }
+
+    function shuffleQuestions() {
+      const shuffled = [...questions];
+      for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+      }
+      if (runQuestions.length === shuffled.length && shuffled.every((item, index) => item === runQuestions[index])) {
+        [shuffled[0], shuffled[1]] = [shuffled[1], shuffled[0]];
+      }
+      return shuffled;
+    }
 
     function startQuiz() {
       current = 0;
       score = 0;
+      missedAnswers = [];
+      runQuestions = shuffleQuestions();
       intro.classList.add("hidden");
       results.classList.add("hidden");
       quiz.classList.remove("hidden");
@@ -526,17 +624,18 @@
     }
 
     function renderQuestion() {
-      const item = questions[current];
+      const item = runQuestions[current];
       answered = false;
-      countLabel.textContent = `Question ${current + 1} of ${questions.length}`;
+      countLabel.textContent = `Question ${current + 1} of ${runQuestions.length}`;
       scoreLabel.textContent = `⭐ Score: ${score}`;
       progress.setAttribute("aria-valuenow", String(current));
-      progressFill.style.width = `${(current / questions.length) * 100}%`;
+      progress.setAttribute("aria-valuemax", String(runQuestions.length));
+      progressFill.style.width = `${(current / runQuestions.length) * 100}%`;
       questionText.textContent = item.question;
       feedback.textContent = "";
       feedback.className = "feedback";
       nextButton.disabled = true;
-      nextButton.innerHTML = current === questions.length - 1
+      nextButton.innerHTML = current === runQuestions.length - 1
         ? 'See my results <span aria-hidden="true">→</span>'
         : 'Next question <span aria-hidden="true">→</span>';
       answersElement.replaceChildren();
@@ -558,7 +657,7 @@
     function chooseAnswer(selected) {
       if (answered) return;
       answered = true;
-      const item = questions[current];
+      const item = runQuestions[current];
       const buttons = [...answersElement.querySelectorAll(".answer")];
       buttons.forEach(button => { button.disabled = true; });
       const correct = selected === item.correct;
@@ -570,6 +669,11 @@
         feedback.textContent = `Brilliant! ${item.fact}`;
         feedback.classList.add("good");
       } else {
+        missedAnswers.push({
+          question: item.question,
+          selected: item.answers[selected],
+          correct: item.answers[item.correct]
+        });
         buttons[selected].classList.add("wrong");
         buttons[selected].querySelector(".answer-status").textContent = "OFF COURSE";
         buttons[item.correct].classList.add("reveal");
@@ -580,19 +684,50 @@
 
       scoreLabel.textContent = `⭐ Score: ${score}`;
       progress.setAttribute("aria-valuenow", String(current + 1));
-      progressFill.style.width = `${((current + 1) / questions.length) * 100}%`;
+      progressFill.style.width = `${((current + 1) / runQuestions.length) * 100}%`;
       nextButton.disabled = false;
     }
 
     function showResults() {
       quiz.classList.add("hidden");
       results.classList.remove("hidden");
-      document.querySelector("#final-score").textContent = `${score}/${questions.length}`;
+      document.querySelector("#final-score").textContent = `${score}/${runQuestions.length}`;
+
+      if (bestScore === null || score > bestScore) {
+        try {
+          window.localStorage.setItem(bestScoreStorageKey, String(score));
+          bestScore = score;
+          bestScoreStorageAvailable = true;
+        } catch {
+          bestScoreStorageAvailable = false;
+        }
+      }
+      personalBest.textContent = bestScoreStorageAvailable
+        ? `Personal best: ${bestScore === null ? "Not set" : `${bestScore}/${runQuestions.length}`}`
+        : "Personal best: unavailable";
+
+      reviewList.replaceChildren();
+      missedReview.classList.toggle("hidden", missedAnswers.length === 0);
+      missedReview.open = false;
+      reviewSummary.textContent = `Review missed questions (${missedAnswers.length})`;
+      missedAnswers.forEach(missed => {
+        const entry = document.createElement("li");
+        entry.className = "missed-question";
+        const question = document.createElement("h2");
+        question.textContent = missed.question;
+        const selected = document.createElement("p");
+        selected.textContent = `Your answer: ${missed.selected}`;
+        const correct = document.createElement("p");
+        correct.className = "correct-answer";
+        correct.textContent = `Correct answer: ${missed.correct}`;
+        entry.append(question, selected, correct);
+        reviewList.append(entry);
+      });
 
       let emoji;
       let title;
       let caption;
-      if (score === questions.length) {
+      if (score === runQuestions.length) {
         emoji = "🏆";
         title = "Out-of-this-world!";
         caption = "A perfect mission. The cosmos is lucky to have you.";
@@ -619,13 +754,14 @@
     document.querySelector("#start-button").addEventListener("click", startQuiz);
     nextButton.addEventListener("click", () => {
       if (!answered) return;
-      if (current === questions.length - 1) showResults();
+      if (current === runQuestions.length - 1) showResults();
       else {
         current += 1;
         renderQuestion();
       }
     });
     document.querySelector("#play-again").addEventListener("click", startQuiz);
+    bestScore = loadBestScore();
   </script>
 </body>
 </html>
